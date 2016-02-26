@@ -1,5 +1,0 @@
----
-# server_url: https://puppetdb:8081
-# ssl_key: /var/lib/puppet/ssl/private_keys/<fqdn>.pem
-# ssl_cert: /var/lib/puppet/ssl/certs/<fqdn>.pem
-# ssl_ca: /var/lib/puppet/ssl/certs/ca.pem
