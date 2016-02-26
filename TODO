@@ -1,0 +1,8 @@
+
+Threaded SSH commands
+
+Integrate with SSH client (net::ssh? sshkit?)
+
+arbitrary fact query (hostname X, facty=b, factz=c)
+fact retrieval (hostname, factx, facty, factz)
+

@@ -1,0 +1,7 @@
+---
+server1:
+  server: https://puppetdb:8081
+  pem:
+   key:     ~/pdb/private_keys/<fqdn>.pem
+   cert:    ~/pdb/certs/<fqdn>.pem
+   ca_file: ~/pdb/certs/ca.pem
