@@ -3,18 +3,20 @@
 require 'optparse'
 require 'puppetdb'
 require 'yaml'
+require 'pp'
 
 default_options = {
-  :debug     => false,
-  :list_only => false,
-  :order     => 'name',
-  :ssh_opts  => '-A -t -Y',
-  :ssh_user  => 'root',
+  :debug        => false,
+  :list_only    => false,
+  :order        => 'name',
+  :ssh_opts     => '-A -t -Y',
+  :ssh_user     => 'root',
+  :mgmt_ip_fact => 'ipaddress',
 }
 
 @options = default_options
 
-config_file = "#{Dir.home}/.pdb.yaml"
+config_file = "#{Dir.home}/.pdb/pdb.yaml"
 
 # If there is a config file, merge the options with the default options
 # Note that in the config file you can specify the options as "ssh_key" rather than ":ssh_key"
@@ -96,6 +98,9 @@ if @options[:debug]
   puts ARGV
 end
 
+@options[:ssl_key] = File.expand_path(@options[:ssl_key])
+@options[:ssl_cert] = File.expand_path(@options[:ssl_cert])
+@options[:ssl_ca] = File.expand_path(@options[:ssl_ca])
 validate_ssl_opt :ssl_key
 validate_ssl_opt :ssl_cert
 validate_ssl_opt :ssl_ca
@@ -109,11 +114,12 @@ pdb_client_config = {
     'ca_file' => @options[:ssl_ca],
   }
 }
+
 # A hash to gather node and fact together
 nodes_array = []
 
 client = PuppetDB::Client.new(pdb_client_config)
-response = client.request( 'facts', [:and, [:'~', 'certname', hostname], ['=', 'name', 'fh_mgmt_ip'] ] )
+response = client.request( 'facts', [:and, [:'~', 'certname', hostname], ['=', 'name', @options[:mgmt_ip_fact] ] ] )
 response.data.each do |n|
   nodes_array << { 'name' => n['certname'], 'ip' => n['value'] }
 end
