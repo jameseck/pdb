@@ -27,8 +27,19 @@ if File.exists? config_file then
   end
 end
 
+facts_include = []
+facts_criteria = {}
+
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] hostname1 hostname2 hostname3regex"
+  opts.on("-f", "--fact FACT", "Fact to query for (specify fact name or name=value") do |v|
+    if v.include? "=" then
+      name,val=v.split("=")
+      facts_criteria[name] = val
+    else
+      facts_include << v
+    end
+  end
   opts.on("-l", "--ssh_user USER", "User for SSH (default: root)") do |v|
     @options[:ssh_user] = v
   end
@@ -60,6 +71,9 @@ option_parser = OptionParser.new do |opts|
 end
 
 option_parser.parse!
+
+PP.pp facts_criteria
+PP.pp facts_include
 
 # Some validation
 
@@ -117,6 +131,22 @@ pdb_client_config = {
 
 # A hash to gather node and fact together
 nodes_array = []
+
+# something like:
+# ["and",
+#   ["or",
+#       ["=", "name", "ipaddress"],
+#       ["=", "name", "osfamily"]
+#   ],
+#   ["in", "certname",
+#     ["extract", "certname", ["select-facts",
+#       ["and",
+#         ["=", "name", "osfamily"],
+#         ["=", "value", "RedHat"]
+#       ]
+#     ]]
+#   ]
+# ]
 
 client = PuppetDB::Client.new(pdb_client_config)
 response = client.request( 'facts', [:and, [:'~', 'certname', hostname], ['=', 'name', @options[:mgmt_ip_fact] ] ] )
