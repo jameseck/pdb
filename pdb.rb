@@ -34,6 +34,7 @@ end
 facts_include = [ @options[:mgmt_ip_fact], ]
 facts_criteria = {}
 
+
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] hostname1 hostname2 hostname3regex"
   opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
@@ -84,6 +85,7 @@ end
 
 option_parser.parse!
 
+cols = ([ 'fqdn' ] << facts_include).flatten
 # Some validation
 
 def validate_ssl_opt (opt)
@@ -98,27 +100,27 @@ def validate_ssl_opt (opt)
   end
 end
 
-def print_matches (matches, index=false)
+def print_matches (cols, matches, index=false)
   columns = {}
   if index then
     columns['index'] = matches.length.to_s.length
     columns['index'] = 5 if columns['index'] < 5
   end
 
-  matches.each do |m|
-    m.each do |k,v|
-      columns[k] ||= 0
-      columns[k] = k.length if k.length > columns[k]
-      columns[k] = v.length if v.length > columns[k]
+  cols.each do |c|
+    matches.each do |m|
+      next if not m.has_key? c
+      columns[c] ||= 0
+      columns[c] = c.length if c.length > columns[c]
+      columns[c] = m[c].length if m[c].length > columns[c]
     end
   end
 
-  node_count = matches.length
   output = ""
   header = ""
-  columns.each do |col, l|
-    output << sprintf("%-#{l}s " % col)
-    header << sprintf("%-#{l}s " % ('-' * l))
+  cols.each do |col|
+    output << sprintf("%-#{columns[col]}s " % col)
+    header << sprintf("%-#{columns[col]}s " % ('-' * columns[col]))
   end
   output << "\n#{header}\n"
   node_index = 1
@@ -126,8 +128,10 @@ def print_matches (matches, index=false)
     if index then
       output << sprintf("%-#{columns['index']}s " % node_index)
     end
-    m.each do |k, v|
-      output << sprintf("%-#{columns[k]}s " % v)
+    cols.each do |col|
+      next if not m.has_key? col
+      m[col] = m[col].gsub "\n", "\\n" # Bit hacky but we need to get rid of newlines
+      output << sprintf("%-#{columns[col]}s " % m[col])
     end
     output << "\n"
     node_index += 1
@@ -138,10 +142,7 @@ end
 if ARGV.length >= 1
   hostname = ARGV[0]
 else
-  puts option_parser
-  puts "\n"
-  puts "ERROR: You must provide a hostname\n"
-  exit 1
+  hostname = '.*'
 end
 
 if @options[:debug]
@@ -156,16 +157,6 @@ end
 validate_ssl_opt :ssl_key
 validate_ssl_opt :ssl_cert
 validate_ssl_opt :ssl_ca
-
-
-pdb_client_config = {
-  'server' => @options[:server_url],
-  'pem' => {
-    'key'     => @options[:ssl_key],
-    'cert'    => @options[:ssl_cert],
-    'ca_file' => @options[:ssl_ca],
-  }
-}
 
 # build up the query string
 query = "[ \"and\",\n"
@@ -218,6 +209,7 @@ results_hash.each do |k,v|
   nodes_array << { 'fqdn' => k }.merge(v)
 end
 
+
 if nodes_array.find {|h| h.member? @options[:order] } then
   nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
 else
@@ -233,7 +225,7 @@ if nodes_array.empty? then
 end
 
 if @options[:list_only] then
-  print_matches nodes_array, false
+  print_matches cols, nodes_array, false
   exit 0
 end
 
@@ -241,7 +233,7 @@ if nodes_array.length > 1 then
   puts "Found nodes:\n"
   puts "\n"
 
-  print_matches nodes_array, true
+  print_matches cols, nodes_array, true
   puts "\n"
   puts "Please pick a node to SSH to: "
   num = STDIN.gets.chomp().to_i
