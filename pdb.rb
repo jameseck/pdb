@@ -36,7 +36,7 @@ facts_criteria = {}
 
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] hostname1 hostname2 hostname3regex"
-  opts.on("-f", "--fact FACT", "Fact to query for (specify fact name or name=value") do |f|
+  opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
     f.split(',').each do |v|
       if v.include? "=" then
         name, val = v.split('=')
@@ -46,10 +46,10 @@ option_parser = OptionParser.new do |opts|
       end
     end
   end
-  opts.on("--fact-and", "Multiple fact queries are ANDed") do |v|
+  opts.on("--fact-and", "Multiple fact criteria are ANDed") do |v|
     @options[:fact_and_or] = 'and'
   end
-  opts.on("--fact-or", "Multiple fact queries are ORed") do |v|
+  opts.on("--fact-or", "Multiple fact criteria are ORed") do |v|
     @options[:fact_and_or] = 'or'
   end
   opts.on("-l", "--ssh_user USER", "User for SSH (default: root)") do |v|
@@ -65,16 +65,16 @@ option_parser = OptionParser.new do |opts|
     @options[:ssh_opts] = v
   end
   opts.on("--ssl_cert FILE", "SSL certificate file to connect to puppetdb") do |v|
-    options[:ssl_cert] = v
+    @options[:ssl_cert] = v
   end
   opts.on("--ssl_key FILE", "SSL key file to connect to puppetdb") do |v|
-    options[:ssl_key] = v
+    @options[:ssl_key] = v
   end
   opts.on("--ssl_ca FILE", "SSL ca file to connect to puppetdb") do |v|
-    options[:ssl_ca] = v
+    @options[:ssl_ca] = v
   end
   opts.on("-d", "--debug", "Show additional debug logging") do |v|
-    options[:debug] = true
+    @options[:debug] = true
   end
   opts.on_tail("-h", "--help", "Show this message") do
     puts opts
@@ -98,11 +98,43 @@ def validate_ssl_opt (opt)
   end
 end
 
-def printnodes(nodes_array)
-  max_length = nodes_array.max_by{ |a| a['name'].length }['name'].length
-  nodes_array.each do |n|
-    printf "# %-#{max_length}s  %-12s\n", n['name'], n['ip']
+def print_matches (matches, index=false)
+  columns = {}
+  if index then
+    columns['index'] = matches.keys.length.to_s.length
+    columns['index'] = 5 if columns['index'] < 5
   end
+  columns['fqdn'] = matches.keys.max_by(&:length).length
+
+  matches.each do |fqdn, facts|
+    facts.each do |k,v|
+      columns[k] ||= 0
+      columns[k] = v.length if v.length > columns[k]
+      columns[k] = k.length if k.length > columns[k]
+    end
+  end
+
+  node_count = matches.keys.length
+  output = ""
+  header = ""
+  columns.each do |col, l|
+    output << sprintf("%-#{l}s " % col)
+    header << sprintf("%-#{l}s " % ('-' * l))
+  end
+  output << "\n#{header}\n"
+  node_index = 1
+  matches.each do |fqdn, facts|
+    if index then
+      output << sprintf("%-#{columns['index']}s " % node_index)
+    end
+    output << sprintf("%-#{columns['fqdn']}s " % fqdn)
+    facts.each do |k, v|
+      output << sprintf("%-#{columns[k]}s " % v)
+    end
+    output << "\n"
+    node_index += 1
+  end
+  puts output
 end
 
 if ARGV.length >= 1
@@ -115,7 +147,6 @@ else
 end
 
 if @options[:debug]
-  require 'pp'
   PP.pp @options
   puts "ARGV:\n"
   puts ARGV
@@ -163,40 +194,10 @@ facts_criteria.each do |k,v|
   query << "      ]]\n"
   query << "    ]\n"
 end
-# some facts here
 query << "  ]\n" if not facts_criteria.empty?
 query << "]\n"
 
-puts query
-
-#query = URI.encode '
-#["and",
-#  ["or",
-#    ["=", "name", "ipaddress"],
-#    ["=", "name", "osfamily"],
-#    ["=", "name", "selinux_enforced"]
-#  ],
-#  ["and",
-#    ["in", "certname",
-#      ["extract", "certname", ["select-facts",
-#                              ["and",
-#                                ["=", "name", "osfamily"],
-#                                ["=", "value", "RedHat"]
-#                              ]
-#      ]]
-#    ],
-#    ["in", "certname",
-#      ["extract", "certname", ["select-facts",
-#                              ["and",
-#                                ["=", "name", "selinux_enforced"],
-#                                ["=", "value", "true"]
-#                              ]
-#                            ]
-#      ]]
-#    ]
-#  ]
-#]
-#'
+puts query if @options[:debug]
 
 uri = URI.parse("#{@options[:server_url]}/v3/facts?query=#{URI.encode(query)}")
 key = File.read(File.expand_path(@options[:ssl_key]))
@@ -218,44 +219,44 @@ results_array.each do |a|
   results_hash[a['certname']][a['name']] = a['value']
 end
 
-PP.pp results_hash
+PP.pp results_hash if @options[:debug]
 
 
+#print_matches results_hash,true
 
-#nodes_array << { 'name' => n['certname'], 'ip' => n['value'] }
 
 nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
 
-if nodes_array.empty? then
+if results_hash.empty? then
   puts "No results found.\n"
   exit 0
 end
 
 if @options[:list_only] then
-  printnodes nodes_array
+  print_matches results_hash, false
   exit 0
 end
 
-if nodes_array.length > 1 then
+if results_hash.length > 1 then
   puts "Found nodes:\n"
   puts "\n"
 
-  nodes_array.each_with_index do |n, index|
-    print "#{index+1}: #{n['name']} - #{n['ip']}\n"
-  end
+  print_matches results_hash, true
   puts "\n"
   puts "Please pick a node to SSH to: "
   num = STDIN.gets.chomp().to_i
-  if not num.between?(1, nodes_array.length) then
+  if not num.between?(1, results_hash.keys.length) then
     puts "Try picking a number that exists...\n"
     exit 1
   end
-  real_node = nodes_array[num-1]
+  real_node = results_hash.keys[num-1]
 else
-  real_node = nodes_array[0]
+  real_node = results_hash.keys[0]
 end
 
+node_ip = results_hash[real_node][@options[:mgmt_ip_fact]]
+
 if real_node then
-  puts "SSHing to #{real_node['name']} - #{real_node['ip']}\n"
-  exec "ssh #{@options[:ssh_opts]} #{@options[:ssh_user]}@#{real_node['ip']}\n"
+  puts "SSHing to #{real_node} - #{node_ip}\n"
+  exec "ssh #{@options[:ssh_opts]} #{@options[:ssh_user]}@#{node_ip}\n"
 end
