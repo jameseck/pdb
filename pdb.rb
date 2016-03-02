@@ -46,7 +46,7 @@ option_parser = OptionParser.new do |opts|
       end
     end
   end
-  opts.on("--fact-and", "Multiple fact criteria are ANDed") do |v|
+  opts.on("--fact-and", "Multiple fact criteria are ANDed (default)") do |v|
     @options[:fact_and_or] = 'and'
   end
   opts.on("--fact-or", "Multiple fact criteria are ORed") do |v|
