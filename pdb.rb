@@ -101,20 +101,19 @@ end
 def print_matches (matches, index=false)
   columns = {}
   if index then
-    columns['index'] = matches.keys.length.to_s.length
+    columns['index'] = matches.length
     columns['index'] = 5 if columns['index'] < 5
   end
-  columns['fqdn'] = matches.keys.max_by(&:length).length
 
-  matches.each do |fqdn, facts|
-    facts.each do |k,v|
+  matches.each do |m|
+    m.each do |k,v|
       columns[k] ||= 0
-      columns[k] = v.length if v.length > columns[k]
       columns[k] = k.length if k.length > columns[k]
+      columns[k] = v.length if v.length > columns[k]
     end
   end
 
-  node_count = matches.keys.length
+  node_count = matches.length
   output = ""
   header = ""
   columns.each do |col, l|
@@ -123,12 +122,11 @@ def print_matches (matches, index=false)
   end
   output << "\n#{header}\n"
   node_index = 1
-  matches.each do |fqdn, facts|
+  matches.each do |m|
     if index then
       output << sprintf("%-#{columns['index']}s " % node_index)
     end
-    output << sprintf("%-#{columns['fqdn']}s " % fqdn)
-    facts.each do |k, v|
+    m.each do |k, v|
       output << sprintf("%-#{columns[k]}s " % v)
     end
     output << "\n"
@@ -215,49 +213,51 @@ results_array.each do |a|
   results_hash[a['certname']] ||= {}
   results_hash[a['certname']][a['name']] = a['value']
 end
-
-PP.pp results_hash if @options[:debug]
-
-
-#print_matches results_hash,true
-
-
-#nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
-
-if @options[:order] != 'fqdn' then
-  results_hash = results_hash.sort_by { |k, v| v[@options[:order]] }
+nodes_array = []
+results_hash.each do |k,v|
+  nodes_array << { 'fqdn' => k }.merge(v)
 end
 
-if results_hash.empty? then
+if nodes_array.find {|h| h.member? @options[:order] } then
+  nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
+else
+  puts "Invalid order field specified\n"
+  exit 1
+end
+
+PP.pp nodes_array if @options[:debug]
+
+if nodes_array.empty? then
   puts "No results found.\n"
   exit 0
 end
 
 if @options[:list_only] then
-  print_matches results_hash, false
+  print_matches nodes_array, false
   exit 0
 end
 
-if results_hash.length > 1 then
+if nodes_array.length > 1 then
   puts "Found nodes:\n"
   puts "\n"
 
-  print_matches results_hash, true
+  print_matches nodes_array, true
   puts "\n"
   puts "Please pick a node to SSH to: "
   num = STDIN.gets.chomp().to_i
-  if not num.between?(1, results_hash.keys.length) then
+  if not num.between?(1, nodes_array.length) then
     puts "Try picking a number that exists...\n"
     exit 1
   end
-  real_node = results_hash.keys[num-1]
+  real_node = nodes_array[num-1]
 else
-  real_node = results_hash.keys[0]
+  real_node = nodes_array[0]
 end
 
-node_ip = results_hash[real_node][@options[:mgmt_ip_fact]]
+node_fqdn = real_node['fqdn']
+node_ip = real_node[@options[:mgmt_ip_fact]]
 
 if real_node then
-  puts "SSHing to #{real_node} - #{node_ip}\n"
+  puts "SSHing to #{node_fqdn} - #{node_ip}\n"
   exec "ssh #{@options[:ssh_opts]} #{@options[:ssh_user]}@#{node_ip}\n"
 end
