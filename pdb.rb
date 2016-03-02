@@ -119,6 +119,7 @@ def print_matches (cols, matches, index=false)
   output = ""
   header = ""
   cols.each do |col|
+    next if not columns.has_key? col
     output << sprintf("%-#{columns[col]}s " % col)
     header << sprintf("%-#{columns[col]}s " % ('-' * columns[col]))
   end
