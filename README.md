@@ -1,9 +1,14 @@
 # pdb
 
+GET STARTED:
+
+Copy example.pdb.yaml into ~/.pdb/pdb.yaml and modify accordingly
+
 
 This repository contains a script which utilised pdb to provide useful functions.
 
-The goal is to provide the following:
+
+ASPIRATIONS:
 
  - List servers (including mgmt ip) matching hostname/regex
  - SSH to server matching hostname/regex

@@ -101,7 +101,7 @@ end
 def print_matches (matches, index=false)
   columns = {}
   if index then
-    columns['index'] = matches.length
+    columns['index'] = matches.length.to_s.length
     columns['index'] = 5 if columns['index'] < 5
   end
 
