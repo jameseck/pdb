@@ -54,5 +54,4 @@ results_array.each do |a|
   results_hash[a['certname']][a['name']] = a['value']
 end
 
-
 PP.pp results_hash
