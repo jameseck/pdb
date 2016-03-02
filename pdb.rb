@@ -11,7 +11,7 @@ require 'pp'
 default_options = {
   :debug        => false,
   :list_only    => false,
-  :order        => 'name',
+  :order        => 'fqdn',
   :ssh_opts     => '-A -t -Y',
   :ssh_user     => 'root',
   :mgmt_ip_fact => 'ipaddress',
@@ -58,7 +58,7 @@ option_parser = OptionParser.new do |opts|
   opts.on("-L", "--list-only", "List nodes only, don't try to ssh") do
     @options[:list_only] = true
   end
-  opts.on("-o", "--order name,ip", [ :name, :ip], "Sort order for node list (ip,name). Default: name") do |v|
+  opts.on("-o", "--order FIELD", "Sort order for node list (fqdn,fact). Default: fqdn") do |v|
     @options[:order] = v
   end
   opts.on("-s", "--ssh-options OPTIONS", "Options for SSH (default: -A -t -Y)") do |v|
@@ -169,9 +169,6 @@ pdb_client_config = {
   }
 }
 
-# A hash to gather node and fact together
-nodes_array = []
-
 # build up the query string
 query = "[ \"and\",\n"
 query << "  [ \"~\", \"certname\", \"#{hostname}\" ],\n"
@@ -225,7 +222,11 @@ PP.pp results_hash if @options[:debug]
 #print_matches results_hash,true
 
 
-nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
+#nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
+
+if @options[:order] != 'fqdn' then
+  results_hash = results_hash.sort_by { |k, v| v[@options[:order]] }
+end
 
 if results_hash.empty? then
   puts "No results found.\n"
