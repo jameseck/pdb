@@ -36,15 +36,20 @@ facts_criteria = {}
 
 
 option_parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{File.basename($0)} [options] hostname1 hostname2 hostname3regex"
+  opts.banner = "Usage: #{File.basename($0)} [options] hostnameregex"
   opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
     f.split(',').each do |v|
-      if v.include? "=" then
-        name, val = v.split('=')
-        facts_criteria[name] = val
-      else
+      next if v == nil
+      # Support all v3 api operators
+      factmatch = v.scan(/^(.*?)(<=|>=|=|~|<|>)(.*?)$/)
+      puts "factmatch: #{factmatch}\n" if ARGV.include? '-d'
+      if factmatch.empty?
         facts_include << v
+        next
       end
+      facts_criteria[factmatch[0][0]] ||= {}
+      facts_criteria[factmatch[0][0]]['op'] = factmatch[0][1]
+      facts_criteria[factmatch[0][0]]['value'] = factmatch[0][2]
     end
   end
   opts.on("--fact-and", "Multiple fact criteria are ANDed (default)") do |v|
@@ -105,6 +110,7 @@ def print_matches (cols, matches, index=false)
   if index then
     columns['index'] = matches.length.to_s.length
     columns['index'] = 5 if columns['index'] < 5
+    cols =([ 'index' ] << cols).flatten
   end
 
   cols.each do |c|
@@ -130,14 +136,16 @@ def print_matches (cols, matches, index=false)
       output << sprintf("%-#{columns['index']}s " % node_index)
     end
     cols.each do |col|
-      next if not m.has_key? col
-      m[col] = m[col].gsub "\n", "\\n" # Bit hacky but we need to get rid of newlines
+      next if col == 'index'
+      output << " " * (columns[col]+1) if not m.has_key? col
+      next if m[col] == nil
+      m[col] = m[col].gsub "\n", "\\n" # Bit hacky but we need to get rid of real newlines
       output << sprintf("%-#{columns[col]}s " % m[col])
     end
     output << "\n"
     node_index += 1
   end
-  puts output
+  output
 end
 
 if ARGV.length >= 1
@@ -159,6 +167,13 @@ validate_ssl_opt :ssl_key
 validate_ssl_opt :ssl_cert
 validate_ssl_opt :ssl_ca
 
+if @options[:debug] then
+  puts "fact_include:\n"
+  PP.pp facts_include
+  puts "fact_criteria:\n"
+  PP.pp facts_criteria
+end
+
 # build up the query string
 query = "[ \"and\",\n"
 query << "  [ \"~\", \"certname\", \"#{hostname}\" ],\n"
@@ -176,7 +191,7 @@ facts_criteria.each do |k,v|
   query << "      [ \"extract\", \"certname\", [ \"select-facts\",\n"
   query << "        [ \"and\",\n"
   query << "          [ \"=\", \"name\", \"#{k}\" ],\n"
-  query << "          [ \"=\", \"value\", \"#{v}\" ]\n"
+  query << "          [ \"#{v['op']}\", \"value\", \"#{v['value']}\" ]\n"
   query << "        ]\n"
   query << "      ]]\n"
   query << "    ]\n"
@@ -211,30 +226,29 @@ results_hash.each do |k,v|
 end
 
 
-if nodes_array.find {|h| h.member? @options[:order] } then
-  nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
-else
-  puts "Invalid order field specified\n"
-  exit 1
-end
-
-PP.pp nodes_array if @options[:debug]
-
 if nodes_array.empty? then
   puts "No results found.\n"
   exit 0
 end
 
+if nodes_array.find {|h| h.member? @options[:order] } then
+  nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
+else
+  puts "Invalid order field '#{@options[:order]}' specified\n"
+  exit 1
+end
+
+PP.pp nodes_array if @options[:debug]
+
 if @options[:list_only] then
-  print_matches cols, nodes_array, false
+  puts print_matches(cols, nodes_array, false)
   exit 0
 end
 
 if nodes_array.length > 1 then
   puts "Found nodes:\n"
   puts "\n"
-
-  print_matches cols, nodes_array, true
+  puts print_matches(cols, nodes_array, true)
   puts "\n"
   puts "Please pick a node to SSH to: "
   num = STDIN.gets.chomp().to_i
