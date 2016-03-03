@@ -137,7 +137,7 @@ def print_matches (cols, matches, index=false)
     end
     cols.each do |col|
       next if col == 'index'
-      output << " " * (columns[col]+1) if not m.has_key? col
+      output << " " * (columns[col].to_i+1) if not m.has_key? col
       next if m[col] == nil
       m[col] = m[col].gsub "\n", "\\n" # Bit hacky but we need to get rid of real newlines
       output << sprintf("%-#{columns[col]}s " % m[col])
@@ -232,7 +232,7 @@ if nodes_array.empty? then
 end
 
 if nodes_array.find {|h| h.member? @options[:order] } then
-  nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] }
+  nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] || '' }
 else
   puts "Invalid order field '#{@options[:order]}' specified\n"
   exit 1
