@@ -6,3 +6,4 @@ Integrate with SSH client (net::ssh? sshkit?)
 arbitrary fact query (hostname X, facty=b, factz=c)
 fact retrieval (hostname, factx, facty, factz)
 
+support for ssh client options (preserve username specified in ssh .config)
