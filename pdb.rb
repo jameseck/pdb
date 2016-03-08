@@ -13,9 +13,11 @@ default_options = {
   :list_only    => false,
   :order        => 'fqdn',
   :ssh_opts     => '-A -t -Y',
-  :ssh_user     => 'root',
+  :ssh_user     => nil,
+  :threads      => 5,
   :mgmt_ip_fact => 'ipaddress',
   :fact_and_or  => 'and',
+  :command      => false,
 }
 
 @options = default_options
@@ -37,6 +39,9 @@ facts_criteria = {}
 
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] hostnameregex"
+  opts.on("-c", "--command COMMAND", "Run command on all matching hosts") do |c|
+    @options[:command] = c
+  end
   opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
     f.split(',').each do |v|
       next if v == nil
@@ -58,7 +63,10 @@ option_parser = OptionParser.new do |opts|
   opts.on("--fact-or", "Multiple fact criteria are ORed") do |v|
     @options[:fact_and_or] = 'or'
   end
-  opts.on("-l", "--ssh_user USER", "User for SSH (default: root)") do |v|
+  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands") do |v|
+    @options[:threads] = v
+  end
+  opts.on("-l", "--ssh_user USER", "User for SSH (default: whatever your ssh client will use)") do |v|
     @options[:ssh_user] = v
   end
   opts.on("-L", "--list-only", "List nodes only, don't try to ssh") do
@@ -242,6 +250,21 @@ PP.pp nodes_array if @options[:debug]
 
 if @options[:list_only] then
   puts print_matches(cols, nodes_array, false)
+  exit 0
+end
+
+if @options[:command] then
+  inv = { 'all' => { 'hosts' => nodes_array.map { |x| x[@options[:mgmt_ip_fact]] } } }
+  invfile = "#{Dir.home}/.pdb/tmpinventorylist"
+  File.open(invfile, 'w') { |f| f.write("#!/bin/sh\nprintf '#{inv.to_json}\n'\n") }
+  File.chmod(0700, invfile)
+  ansible_command = "ansible all -i \"#{invfile}\""
+  ansible_command << " -a \"#{@options[:command]}\""
+  ansible_command << " -f #{@options[:threads]}"
+  ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
+  puts "ansible command: #{ansible_command}\n" if @options[:debug]
+  system(ansible_command)
+  File.delete invfile unless @options[:debug]
   exit 0
 end
 
