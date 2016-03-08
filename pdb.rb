@@ -164,8 +164,7 @@ end
 
 if @options[:debug]
   PP.pp @options
-  puts "ARGV:\n"
-  puts ARGV
+  puts "ARGV: #{ARGV}\n"
 end
 
 @options[:ssl_key] = File.expand_path(@options[:ssl_key])
@@ -176,10 +175,8 @@ validate_ssl_opt :ssl_cert
 validate_ssl_opt :ssl_ca
 
 if @options[:debug] then
-  puts "fact_include:\n"
-  PP.pp facts_include
-  puts "fact_criteria:\n"
-  PP.pp facts_criteria
+  puts "fact_include: #{facts_include}\n"
+  puts "fact_criteria: #{facts_criteria}\n"
 end
 
 # build up the query string
@@ -207,7 +204,7 @@ end
 query << "  ]\n" if not facts_criteria.empty?
 query << "]\n"
 
-puts query if @options[:debug]
+puts "query: #{query}\n" if @options[:debug]
 
 uri = URI.parse("#{@options[:server_url]}/v3/facts?query=#{URI.encode(query)}")
 key = File.read(File.expand_path(@options[:ssl_key]))
@@ -246,7 +243,7 @@ else
   exit 1
 end
 
-PP.pp nodes_array if @options[:debug]
+puts "matching nodes: #{nodes_array}\n" if @options[:debug]
 
 if @options[:list_only] then
   puts print_matches(cols, nodes_array, false)
