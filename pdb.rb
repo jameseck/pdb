@@ -19,6 +19,7 @@ default_options = {
   :mgmt_ip_fact   => 'ipaddress',
   :fact_and_or    => 'and',
   :command        => false,
+  :ansible_opts   => nil,
 }
 
 @options = default_options
@@ -47,6 +48,9 @@ facts_criteria = {}
 
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] [hostregex] [hostregex] ..."
+  opts.on("-a", "--ansible-opts OPTS", "Pass extra arguments to ansible") do |a|
+    @options[:ansible_opts] = a
+  end
   opts.on("-c", "--command COMMAND", "Run command on all matching hosts using ansible") do |c|
     unless system("which ansible > /dev/null 2>&1")
       puts "ansible was not found.\n"
@@ -282,6 +286,7 @@ if @options[:command] then
   ansible_command << " -m #{@options[:ansible_module]}" unless @options[:ansible_module].empty?
   ansible_command << " -a \"#{@options[:command]}\""
   ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
+  ansible_command << " -a \"#{@options[:ansible_opts]}\"" if @options[:ansible_opts]
   puts "ansible command: #{ansible_command}\n" if @options[:debug]
   system(ansible_command)
   File.delete invfile unless @options[:debug]
@@ -316,5 +321,5 @@ if real_node then
   end
   cmd = "ssh #{@options[:ssh_opts]} #{useratip}"
   puts "ssh cmd: #{cmd}\n" if @options[:debug]
-  exec cmd
+  system(cmd)
 end
