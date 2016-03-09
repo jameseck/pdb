@@ -1,7 +1,6 @@
 #!/usr/bin/env ruby
 
 require 'optparse'
-require 'puppetdb'
 require 'yaml'
 require 'json'
 require 'net/https'
