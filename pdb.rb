@@ -9,15 +9,16 @@ require 'uri'
 require 'pp'
 
 default_options = {
-  :debug        => false,
-  :list_only    => false,
-  :order        => 'fqdn',
-  :ssh_opts     => '-A -t -Y',
-  :ssh_user     => nil,
-  :threads      => 5,
-  :mgmt_ip_fact => 'ipaddress',
-  :fact_and_or  => 'and',
-  :command      => false,
+  :ansible_module => 'shell',
+  :debug          => false,
+  :list_only      => false,
+  :order          => 'fqdn',
+  :ssh_opts       => '-A -t -Y',
+  :ssh_user       => nil,
+  :threads        => 5,
+  :mgmt_ip_fact   => 'ipaddress',
+  :fact_and_or    => 'and',
+  :command        => false,
 }
 
 @options = default_options
@@ -45,14 +46,17 @@ facts_criteria = {}
 
 
 option_parser = OptionParser.new do |opts|
-  opts.banner = "Usage: #{File.basename($0)} [options] hostnameregex"
-  opts.on("-c", "--command COMMAND", "Run command on all matching hosts") do |c|
+  opts.banner = "Usage: #{File.basename($0)} [options] [hostregex] [hostregex] ..."
+  opts.on("-c", "--command COMMAND", "Run command on all matching hosts using ansible") do |c|
     unless system("which ansible > /dev/null 2>&1")
-      puts "Ansible was not found.\n"
+      puts "ansible was not found.\n"
       puts "To run commands with this script, you need to install ansible.\n"
       exit 1
     end
     @options[:command] = c
+  end
+  opts.on("-d", "--debug", "Show additional debug logging") do |v|
+    @options[:debug] = true
   end
   opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
     f.split(',').each do |v|
@@ -75,14 +79,14 @@ option_parser = OptionParser.new do |opts|
   opts.on("--fact-or", "Multiple fact criteria are ORed") do |v|
     @options[:fact_and_or] = 'or'
   end
-  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands") do |v|
-    @options[:threads] = v
-  end
   opts.on("-l", "--ssh_user USER", "User for SSH (default: whatever your ssh client will use)") do |v|
     @options[:ssh_user] = v
   end
   opts.on("-L", "--list-only", "List nodes only, don't try to ssh") do
     @options[:list_only] = true
+  end
+  opts.on("-m", "--ansible-module MODULE", "Specify which module to use for ansible command (default: shell)") do |m|
+    @options[:ansible_module] = m
   end
   opts.on("-o", "--order FIELD", "Sort order for node list (fqdn,fact). Default: fqdn") do |v|
     @options[:order] = v
@@ -99,8 +103,8 @@ option_parser = OptionParser.new do |opts|
   opts.on("--ssl_ca FILE", "SSL ca file to connect to puppetdb") do |v|
     @options[:ssl_ca] = v
   end
-  opts.on("-d", "--debug", "Show additional debug logging") do |v|
-    @options[:debug] = true
+  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands") do |v|
+    @options[:threads] = v
   end
   opts.on_tail("-h", "--help", "Show this message") do
     puts opts
@@ -169,9 +173,9 @@ def print_matches (cols, matches, index=false)
 end
 
 if ARGV.length >= 1
-  hostname = ARGV[0]
+  hostnames = ARGV
 else
-  hostname = '.*'
+  hostnames = [ '.*' ]
 end
 
 if @options[:debug]
@@ -193,7 +197,13 @@ end
 
 # build up the query string
 query = "[ \"and\",\n"
-query << "  [ \"~\", \"certname\", \"#{hostname}\" ],\n"
+query << "  [ \"or\",\n"
+hosts_q = []
+hostnames.each do |h|
+  hosts_q << "    [ \"~\", \"certname\", \"#{h}\" ]\n"
+end
+query << hosts_q.join(',')
+query << "  ],\n"
 query << "  [ \"or\",\n"
 
 facts_inc = []
@@ -268,8 +278,9 @@ if @options[:command] then
   File.open(invfile, 'w') { |f| f.write("#!/bin/sh\nprintf '#{inv.to_json}\n'\n") }
   File.chmod(0700, invfile)
   ansible_command = "ansible all -i \"#{invfile}\""
-  ansible_command << " -a \"#{@options[:command]}\""
   ansible_command << " -f #{@options[:threads]}"
+  ansible_command << " -m #{@options[:ansible_module]}" unless @options[:ansible_module].empty?
+  ansible_command << " -a \"#{@options[:command]}\""
   ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
   puts "ansible command: #{ansible_command}\n" if @options[:debug]
   system(ansible_command)
@@ -293,10 +304,17 @@ else
   real_node = nodes_array[0]
 end
 
-node_fqdn = real_node['fqdn']
-node_ip = real_node[@options[:mgmt_ip_fact]]
 
 if real_node then
+  node_fqdn = real_node['fqdn']
+  node_ip = real_node[@options[:mgmt_ip_fact]]
   puts "SSHing to #{node_fqdn} - #{node_ip}\n"
-  exec "ssh #{@options[:ssh_opts]} #{@options[:ssh_user]}@#{node_ip}\n"
+  if @options[:ssh_user]
+    useratip = "#{@options[:ssh_user]}@#{node_ip}"
+  else
+    useratip = node_ip
+  end
+  cmd = "ssh #{@options[:ssh_opts]} #{useratip}"
+  puts "ssh cmd: #{cmd}\n" if @options[:debug]
+  exec cmd
 end
