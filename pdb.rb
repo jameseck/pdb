@@ -22,10 +22,17 @@ default_options = {
 
 @options = default_options
 
-config_file = "#{Dir.home}/.pdb/pdb.yaml"
+config_dir = "#{Dir.home}/.pdb"
+
+unless File.exists? config_dir
+  File.mkdir config_dir
+  File.chmod 0700, config_dir
+end
+
+config_file = "#{config_dir}/pdb.yaml"
 
 # If there is a config file, merge the options with the default options
-# Note that in the config file you can specify the options as "ssh_key" rather than ":ssh_key"
+# Note that in the config file you can specify the options as "ssh_key" or ":ssh_key"
 if File.exists? config_file then
   config_file_options = YAML.load_file(config_file)
   unless config_file_options == nil then
@@ -40,6 +47,11 @@ facts_criteria = {}
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] hostnameregex"
   opts.on("-c", "--command COMMAND", "Run command on all matching hosts") do |c|
+    unless system("which ansible > /dev/null 2>&1")
+      puts "Ansible was not found.\n"
+      puts "To run commands with this script, you need to install ansible.\n"
+      exit 1
+    end
     @options[:command] = c
   end
   opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
@@ -123,7 +135,7 @@ def print_matches (cols, matches, index=false)
 
   cols.each do |c|
     matches.each do |m|
-      next if not m.has_key? c
+      next unless m.has_key? c
       columns[c] ||= 0
       columns[c] = c.length if c.length > columns[c]
       columns[c] = m[c].length if m[c].length > columns[c]
@@ -133,7 +145,7 @@ def print_matches (cols, matches, index=false)
   output = ""
   header = ""
   cols.each do |col|
-    next if not columns.has_key? col
+    next unless columns.has_key? col
     output << sprintf("%-#{columns[col]}s " % col)
     header << sprintf("%-#{columns[col]}s " % ('-' * columns[col]))
   end
@@ -145,7 +157,7 @@ def print_matches (cols, matches, index=false)
     end
     cols.each do |col|
       next if col == 'index'
-      output << " " * (columns[col].to_i+1) if not m.has_key? col
+      output << " " * (columns[col].to_i+1) unless m.has_key? col
       next if m[col] == nil
       m[col] = m[col].gsub "\n", "\\n" # Bit hacky but we need to get rid of real newlines
       output << sprintf("%-#{columns[col]}s " % m[col])
@@ -190,7 +202,7 @@ facts_include.each do |f|
 end
 query << facts_inc.join(",")
 query << "  ]\n"
-query << " ,[\"#{@options[:fact_and_or]}\"\n" if not facts_criteria.empty?
+query << " ,[\"#{@options[:fact_and_or]}\"\n" unless facts_criteria.empty?
 facts_criteria.each do |k,v|
   query << "   ,[ \"in\", \"certname\",\n"
   query << "      [ \"extract\", \"certname\", [ \"select-facts\",\n"
@@ -201,7 +213,7 @@ facts_criteria.each do |k,v|
   query << "      ]]\n"
   query << "    ]\n"
 end
-query << "  ]\n" if not facts_criteria.empty?
+query << "  ]\n" unless facts_criteria.empty?
 query << "]\n"
 
 puts "query: #{query}\n" if @options[:debug]
@@ -272,7 +284,7 @@ if nodes_array.length > 1 then
   puts "\n"
   puts "Please pick a node to SSH to: "
   num = STDIN.gets.chomp().to_i
-  if not num.between?(1, nodes_array.length) then
+  unless num.between?(1, nodes_array.length) then
     puts "Try picking a number that exists...\n"
     exit 1
   end
