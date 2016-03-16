@@ -320,5 +320,5 @@ if real_node then
   end
   cmd = "ssh #{@options[:ssh_opts]} #{useratip}"
   puts "ssh cmd: #{cmd}\n" if @options[:debug]
-  system(cmd)
+  exec(cmd)
 end
