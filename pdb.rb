@@ -10,6 +10,7 @@ require 'pp'
 default_options = {
   :ansible_module => 'shell',
   :debug          => false,
+  :include_facts  => false,
   :list_only      => false,
   :order          => 'fqdn',
   :ssh_opts       => '-A -t -Y',
@@ -45,6 +46,8 @@ facts_include = [ @options[:mgmt_ip_fact], ]
 facts_criteria = {}
 
 
+options_tmp_facts = []
+
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] [hostregex] [hostregex] ..."
   opts.on("-a", "--ansible-opts OPTS", "Pass extra arguments to ansible") do |a|
@@ -62,25 +65,16 @@ option_parser = OptionParser.new do |opts|
     @options[:debug] = true
   end
   opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
-    f.split(',').each do |v|
-      next if v == nil
-      # Support all v3 api operators
-      factmatch = v.scan(/^(.*?)(<=|>=|=|~|<|>)(.*?)$/)
-      puts "factmatch: #{factmatch}\n" if ARGV.include? '-d'
-      if factmatch.empty?
-        facts_include << v
-        next
-      end
-      facts_criteria[factmatch[0][0]] ||= {}
-      facts_criteria[factmatch[0][0]]['op'] = factmatch[0][1]
-      facts_criteria[factmatch[0][0]]['value'] = factmatch[0][2]
-    end
+    options_tmp_facts << f
   end
   opts.on("--fact-and", "Multiple fact criteria are ANDed (default)") do |v|
     @options[:fact_and_or] = 'and'
   end
   opts.on("--fact-or", "Multiple fact criteria are ORed") do |v|
     @options[:fact_and_or] = 'or'
+  end
+  opts.on("-i", "--include-facts", "Include facts in output that were used in criteria (Default: false)") do
+    @options[:include_facts] = true
   end
   opts.on("-l", "--ssh_user USER", "User for SSH (default: whatever your ssh client will use)") do |v|
     @options[:ssh_user] = v
@@ -117,7 +111,6 @@ end
 
 option_parser.parse!
 
-cols = ([ 'fqdn' ] << facts_include).flatten
 # Some validation
 
 def validate_ssl_opt (opt)
@@ -192,6 +185,26 @@ end
 validate_ssl_opt :ssl_key
 validate_ssl_opt :ssl_cert
 validate_ssl_opt :ssl_ca
+
+
+options_tmp_facts.each do |f|
+  f.split(',').each do |v|
+    next if v == nil
+    # Support all v3 api operators
+    factmatch = v.scan(/^(.*?)(<=|>=|=|~|<|>)(.*?)$/)
+    puts "factmatch: #{factmatch}\n" if @options[:debug]
+    if factmatch.empty?
+      facts_include << v
+      next
+    end
+    facts_include << factmatch[0][0] if @options[:include_facts] and not facts_include.include? factmatch[0][0]
+    facts_criteria[factmatch[0][0]] ||= {}
+    facts_criteria[factmatch[0][0]]['op'] = factmatch[0][1]
+    facts_criteria[factmatch[0][0]]['value'] = factmatch[0][2]
+  end
+end
+
+cols = ([ 'fqdn' ] << facts_include).flatten
 
 if @options[:debug] then
   puts "fact_include: #{facts_include}\n"
