@@ -7,10 +7,12 @@ require 'net/https'
 require 'uri'
 require 'pp'
 
+fqdn = `hostname -f`.chomp
+
 default_options = {
   :ansible_module => 'shell',
   :debug          => false,
-  :include_facts  => false,
+  :include_facts  => true,
   :list_only      => false,
   :order          => 'fqdn',
   :ssh_opts       => '-A -t -Y',
@@ -20,6 +22,9 @@ default_options = {
   :fact_and_or    => 'and',
   :command        => false,
   :ansible_opts   => nil,
+  :ssl_key        => "/var/lib/puppet/ssl/private_keys/#{fqdn}.pem",
+  :ssl_cert       => "/var/lib/puppet/ssl/certs/#{fqdn}.pem",
+  :ssl_ca         => '/var/lib/puppet/ssl/certs/ca_crt.pem',
 }
 
 @options = default_options
@@ -61,46 +66,46 @@ option_parser = OptionParser.new do |opts|
     end
     @options[:command] = c
   end
-  opts.on("-d", "--debug", "Show additional debug logging") do |v|
-    @options[:debug] = true
+  opts.on("-d", "--[no-]debug", "Whether to show additional debug logging. (Default/Current: #{default_options[:debug]})") do |v|
+    @options[:debug] = v
   end
-  opts.on("-f", "--fact FACT", "Fact criteria to query for (specify fact name or name=value") do |f|
+  opts.on("-f", "--fact FACT", "Fact criteria to query for. (specify fact name or name=value)") do |f|
     options_tmp_facts << f
   end
-  opts.on("--fact-and", "Multiple fact criteria are ANDed (default)") do |v|
+  opts.on("--fact-and", "Multiple fact criteria are ANDed. (Default)") do |v|
     @options[:fact_and_or] = 'and'
   end
-  opts.on("--fact-or", "Multiple fact criteria are ORed") do |v|
+  opts.on("--fact-or", "Multiple fact criteria are ORed.") do |v|
     @options[:fact_and_or] = 'or'
   end
-  opts.on("-i", "--include-facts", "Include facts in output that were used in criteria (Default: false)") do
-    @options[:include_facts] = true
+  opts.on("-i", "--[no-]include-facts", "Include facts in output that were used in criteria. (Default/Current: #{default_options[:include_facts]})") do |v|
+    @options[:include_facts] = v
   end
-  opts.on("-l", "--ssh_user USER", "User for SSH (default: whatever your ssh client will use)") do |v|
+  opts.on("-l", "--ssh_user USER", "User for SSH. (Default/Current: whatever your ssh client will use)") do |v|
     @options[:ssh_user] = v
   end
-  opts.on("-L", "--list-only", "List nodes only, don't try to ssh") do
-    @options[:list_only] = true
+  opts.on("-L", "--[no-]list-only", "List nodes only, don't try to ssh. (Default/Current: #{default_options[:list_only]})") do |v|
+    @options[:list_only] = v
   end
-  opts.on("-m", "--ansible-module MODULE", "Specify which module to use for ansible command (default: shell)") do |m|
+  opts.on("-m", "--ansible-module MODULE", "Specify which module to use for ansible command (Default/Current: #{default_options[:ansible_module]})") do |m|
     @options[:ansible_module] = m
   end
-  opts.on("-o", "--order FIELD", "Sort order for node list (fqdn,fact). Default: fqdn") do |v|
+  opts.on("-o", "--order FIELD", "Sort order for node list (fqdn,fact). (Default/Current: fqdn)") do |v|
     @options[:order] = v
   end
-  opts.on("-s", "--ssh-options OPTIONS", "Options for SSH (default: -A -t -Y)") do |v|
+  opts.on("-s", "--ssh-options OPTIONS", "Options for SSH (Default/Current: #{default_options[:ssh_opts]})") do |v|
     @options[:ssh_opts] = v
   end
-  opts.on("--ssl_cert FILE", "SSL certificate file to connect to puppetdb") do |v|
+  opts.on("--ssl_cert FILE", "SSL certificate file to connect to puppetdb. Default/Current: #{default_options[:ssl_cert]}") do |v|
     @options[:ssl_cert] = v
   end
-  opts.on("--ssl_key FILE", "SSL key file to connect to puppetdb") do |v|
+  opts.on("--ssl_key FILE", "SSL key file to connect to puppetdb. Default/Current: #{default_options[:ssl_key]}") do |v|
     @options[:ssl_key] = v
   end
-  opts.on("--ssl_ca FILE", "SSL ca file to connect to puppetdb") do |v|
+  opts.on("--ssl_ca FILE", "SSL ca file to connect to puppetdb. Default/Current: #{default_options[:ssl_ca]}") do |v|
     @options[:ssl_ca] = v
   end
-  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands") do |v|
+  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands. (Default/Current: #{default_options[:threads]})") do |v|
     @options[:threads] = v
   end
   opts.on_tail("-h", "--help", "Show this message") do
