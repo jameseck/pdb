@@ -33,10 +33,3 @@ You can mix and match options:
 -f 'osfamily,memorysize_mb<1000'
 This will include the osfamily fact in the output and select nodes where the memorysize_mb fact is less than 1000
 
-
-ASPIRATIONS:
-
- - List servers (including mgmt ip) matching hostname/regex
- - SSH to server matching hostname/regex
- - Allow querying of arbitrary facts
- - Automated SSH to multiple servers (threaded/single)
