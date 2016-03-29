@@ -11,7 +11,8 @@ fqdn = `hostname -f`.chomp
 
 default_options = {
   :ansible_module => 'shell',
-  :ansible_opts   => nil,
+  :ansible_args   => [],
+  :ansible_opts   => [],
   :ansible_env    => [],
   :command        => false,
   :debug          => false,
@@ -56,8 +57,11 @@ options_tmp_facts = []
 
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] [hostregex] [hostregex] ..."
-  opts.on("-a", "--ansible-opts OPTS", "Pass extra arguments to ansible") do |a|
-    @options[:ansible_opts] = a
+  opts.on("-a", "--ansible-module-args OPTS", "Pass module arguments to ansible") do |a|
+    @options[:ansible_opts] << a
+  end
+  opts.on("-A", "--ansible-args ARG", "Additional Ansible arguments. (Default/Current: #{default_options[:ansible_args]})") do |v|
+    @options[:ansible_args] << v
   end
   opts.on("-c", "--command COMMAND", "Run command on all matching hosts using ansible") do |c|
     unless system("which ansible > /dev/null 2>&1")
@@ -307,8 +311,9 @@ if @options[:command] then
   ansible_command << " -m #{@options[:ansible_module]}" unless @options[:ansible_module].empty?
   ansible_command << " -a \"#{@options[:command]}\""
   ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
-  ansible_command << " -a \"#{@options[:ansible_opts]}\"" if @options[:ansible_opts]
-  @options[:ansible_env].each { |e| ansible_command << " -e #{e}" }
+  @options[:ansible_opts].each { |e| ansible_command << " -a \"#{e}\"" }
+  @options[:ansible_args].each { |e| ansible_command << " #{e}" }
+  @options[:ansible_env].each { |e| ansible_command << " -e \"#{e}\"" }
   puts "ansible command: #{ansible_command}\n" if @options[:debug]
   system(ansible_command)
   File.delete invfile unless @options[:debug]
