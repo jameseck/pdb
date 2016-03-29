@@ -12,6 +12,7 @@ fqdn = `hostname -f`.chomp
 default_options = {
   :ansible_module => 'shell',
   :ansible_opts   => nil,
+  :ansible_env    => [],
   :command        => false,
   :debug          => false,
   :fact_and_or    => 'and',
@@ -68,6 +69,9 @@ option_parser = OptionParser.new do |opts|
   end
   opts.on("-d", "--[no-]debug", "Whether to show additional debug logging. (Default/Current: #{default_options[:debug]})") do |v|
     @options[:debug] = v
+  end
+  opts.on("-e", "--ansible-env VAR", "Ansible environment variables. (Default/Current: #{default_options[:ansible_env]})") do |v|
+    @options[:ansible_env] << v
   end
   opts.on("-f", "--fact FACT", "Fact criteria to query for. (specify fact name or name=value)") do |f|
     options_tmp_facts << f
@@ -304,6 +308,7 @@ if @options[:command] then
   ansible_command << " -a \"#{@options[:command]}\""
   ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
   ansible_command << " -a \"#{@options[:ansible_opts]}\"" if @options[:ansible_opts]
+  @options[:ansible_env].each { |e| ansible_command << " -e #{e}" }
   puts "ansible command: #{ansible_command}\n" if @options[:debug]
   system(ansible_command)
   File.delete invfile unless @options[:debug]
