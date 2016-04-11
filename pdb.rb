@@ -10,23 +10,26 @@ require 'pp'
 fqdn = `hostname -f`.chomp
 
 default_options = {
-  :ansible_module => 'shell',
-  :ansible_args   => [],
-  :ansible_opts   => [],
-  :ansible_env    => [],
-  :command        => false,
-  :debug          => false,
-  :fact_and_or    => 'and',
-  :include_facts  => true,
-  :list_only      => false,
-  :mgmt_ip_fact   => 'ipaddress',
-  :order          => 'fqdn',
-  :ssh_opts       => '-A -t -Y',
-  :ssh_user       => nil,
-  :ssl_ca         => '/var/lib/puppet/ssl/certs/ca_crt.pem',
-  :ssl_cert       => "/var/lib/puppet/ssl/certs/#{fqdn}.pem",
-  :ssl_key        => "/var/lib/puppet/ssl/private_keys/#{fqdn}.pem",
-  :threads        => 5,
+  :ansible_module  => 'shell',
+  :ansible_args    => [],
+  :ansible_opts    => [],
+  :ansible_env     => [],
+  :command         => false,
+  :debug           => false,
+  :fact_and_or     => 'and',
+  :include_facts   => true,
+  :list_fact_names => true,
+  :list_only       => false,
+  :mgmt_ip_fact    => 'ipaddress',
+  :order           => 'fqdn',
+  :remote_user     => 'root',
+  :ssh_opts        => '-A -t -Y',
+  :ssh_user        => nil,
+  :ssl_ca          => '/var/lib/puppet/ssl/certs/ca_crt.pem',
+  :ssl_cert        => "/var/lib/puppet/ssl/certs/#{fqdn}.pem",
+  :ssl_key         => "/var/lib/puppet/ssl/private_keys/#{fqdn}.pem",
+  :use_sudo        => true,
+  :threads         => 5,
 }
 
 @options = default_options
@@ -71,37 +74,43 @@ option_parser = OptionParser.new do |opts|
     end
     @options[:command] = c
   end
-  opts.on("-d", "--[no-]debug", "Whether to show additional debug logging. (Default/Current: #{default_options[:debug]})") do |v|
+  opts.on("-d", "--[no-]debug", "Whether to show additional debug logging. Default/Current: #{default_options[:debug]}") do |v|
     @options[:debug] = v
   end
-  opts.on("-e", "--ansible-env VAR", "Ansible environment variables. (Default/Current: #{default_options[:ansible_env]})") do |v|
+  opts.on("-e", "--ansible-env VAR", "Ansible environment variables. Default/Current: #{default_options[:ansible_env]}") do |v|
     @options[:ansible_env] << v
   end
   opts.on("-f", "--fact FACT", "Fact criteria to query for. (specify fact name or name=value)") do |f|
     options_tmp_facts << f
   end
-  opts.on("--fact-and", "Multiple fact criteria are ANDed. (Default)") do |v|
+  opts.on("--fact-and", "Multiple fact criteria are ANDed. Default") do |v|
     @options[:fact_and_or] = 'and'
   end
   opts.on("--fact-or", "Multiple fact criteria are ORed.") do |v|
     @options[:fact_and_or] = 'or'
   end
-  opts.on("-i", "--[no-]include-facts", "Include facts in output that were used in criteria. (Default/Current: #{default_options[:include_facts]})") do |v|
+  opts.on("-i", "--[no-]include-facts", "Include facts in output that were used in criteria. Default/Current: #{default_options[:include_facts]}") do |v|
     @options[:include_facts] = v
   end
-  opts.on("-l", "--ssh_user USER", "User for SSH. (Default/Current: whatever your ssh client will use)") do |v|
+  opts.on("-l", "--ssh_user USER", "User for SSH. Default/Current: whatever your ssh client will use") do |v|
     @options[:ssh_user] = v
   end
-  opts.on("-L", "--[no-]list-only", "List nodes only, don't try to ssh. (Default/Current: #{default_options[:list_only]})") do |v|
+  opts.on("--list-fact-names", "Display a list of all known facts in PuppetDB") do |v|
+    @options[:list_fact_names] = true
+  end
+  opts.on("-L", "--[no-]list-only", "List nodes only, don't try to ssh. Default/Current: #{default_options[:list_only]}") do |v|
     @options[:list_only] = v
   end
-  opts.on("-m", "--ansible-module MODULE", "Specify which module to use for ansible command (Default/Current: #{default_options[:ansible_module]})") do |m|
+  opts.on("-m", "--ansible-module MODULE", "Specify which module to use for ansible command Default/Current: #{default_options[:ansible_module]}") do |m|
     @options[:ansible_module] = m
   end
-  opts.on("-o", "--order FIELD", "Sort order for node list (fqdn,fact). (Default/Current: fqdn)") do |v|
+  opts.on("-o", "--order FIELD", "Sort order for node list (fqdn,fact). Default/Current: fqdn") do |v|
     @options[:order] = v
   end
-  opts.on("-s", "--ssh-options OPTIONS", "Options for SSH (Default/Current: #{default_options[:ssh_opts]})") do |v|
+  opts.on("-r", "--remote_user USER", "User to become - only used by ansible. Default/Current: #{default_options[:remote_user]}") do |v|
+    @options[:remote_user] = v
+  end
+  opts.on("-s", "--ssh-options OPTIONS", "Options for SSH (Default/Current: #{default_options[:ssh_opts]}") do |v|
     @options[:ssh_opts] = v
   end
   opts.on("--ssl_cert FILE", "SSL certificate file to connect to puppetdb. Default/Current: #{default_options[:ssl_cert]}") do |v|
@@ -113,8 +122,11 @@ option_parser = OptionParser.new do |opts|
   opts.on("--ssl_ca FILE", "SSL ca file to connect to puppetdb. Default/Current: #{default_options[:ssl_ca]}") do |v|
     @options[:ssl_ca] = v
   end
-  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands. (Default/Current: #{default_options[:threads]})") do |v|
+  opts.on("-t", "--threads NUM", "Number of threads to use for SSH commands. Default/Current: #{default_options[:threads]}") do |v|
     @options[:threads] = v
+  end
+  opts.on("--[no-]use-sudo", "Whether to use sudo on the remote host - only used by ansible. Default/Current: #{default_options[:use_sudo]}") do |v|
+    @options[:use_sudo] = v
   end
   opts.on_tail("-h", "--help", "Show this message") do
     puts opts
@@ -125,6 +137,25 @@ end
 option_parser.parse!
 
 # Some validation
+
+def fact_names
+
+  uri = URI.parse("#{@options[:server_url]}/v3/fact-names")
+  key = File.read(File.expand_path(@options[:ssl_key]))
+  cert = File.read(File.expand_path(@options[:ssl_cert]))
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = true
+  http.cert = OpenSSL::X509::Certificate.new(cert)
+  http.key = OpenSSL::PKey::RSA.new(key)
+  http.ca_file = File.expand_path(@options[:ssl_ca])
+  http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+
+  request = Net::HTTP::Get.new(uri.request_uri)
+  response = http.request(request)
+
+  JSON.parse(response.body)
+
+end
 
 def validate_ssl_opt (opt)
   unless @options.has_key? opt
@@ -296,6 +327,11 @@ end
 
 puts "matching nodes: #{nodes_array}\n" if @options[:debug]
 
+if @options[:list_fact_names] then
+  puts fact_names
+  exit 0
+end
+
 if @options[:list_only] then
   puts print_matches(cols, nodes_array, false)
   exit 0
@@ -311,6 +347,8 @@ if @options[:command] then
   ansible_command << " -m #{@options[:ansible_module]}" unless @options[:ansible_module].empty?
   ansible_command << " -a \"#{@options[:command]}\""
   ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
+  ansible_command << " --become " if @options[:use_sudo]
+  ansible_command << " --become-user #{@options[:remote_user]}" if @options[:remote_user] and @options[:use_sudo]
   @options[:ansible_opts].each { |e| ansible_command << " -a \"#{e}\"" }
   @options[:ansible_args].each { |e| ansible_command << " #{e}" }
   @options[:ansible_env].each { |e| ansible_command << " -e \"#{e}\"" }
