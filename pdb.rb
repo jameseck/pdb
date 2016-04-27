@@ -337,7 +337,7 @@ if @options[:list_only] then
   exit 0
 end
 
-if @options[:command] then
+if @options[:command] or not @options[:ansible_args].empty? or not @options[:ansible_opts].empty? then
   inv = { 'all' => { 'hosts' => nodes_array.map { |x| x[@options[:mgmt_ip_fact]] } } }
   invfile = "#{Dir.home}/.pdb/tmpinventorylist"
   File.open(invfile, 'w') { |f| f.write("#!/bin/sh\nprintf '#{inv.to_json}\n'\n") }
@@ -345,7 +345,7 @@ if @options[:command] then
   ansible_command = "ansible all -i \"#{invfile}\""
   ansible_command << " -f #{@options[:threads]}"
   ansible_command << " -m #{@options[:ansible_module]}" unless @options[:ansible_module].empty?
-  ansible_command << " -a \"#{@options[:command]}\""
+  ansible_command << " -a \"#{@options[:command]}\"" if @options[:command]
   ansible_command << " -u #{@options[:ssh_user]}" if @options[:ssh_user]
   ansible_command << " --become " if @options[:use_sudo]
   ansible_command << " --become-user #{@options[:remote_user]}" if @options[:remote_user] and @options[:use_sudo]
