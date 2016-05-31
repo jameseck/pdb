@@ -5,6 +5,7 @@ require 'yaml'
 require 'json'
 require 'net/https'
 require 'uri'
+require 'tempfile'
 require 'pp'
 
 fqdn = `hostname -f`.chomp
@@ -33,6 +34,10 @@ default_options = {
 }
 
 @options = default_options
+
+def exit_prog(exit_code=0)
+  exit exit_code
+end
 
 config_dir = "#{Dir.home}/.pdb"
 
@@ -70,7 +75,7 @@ option_parser = OptionParser.new do |opts|
     unless system("which ansible > /dev/null 2>&1")
       puts "ansible was not found.\n"
       puts "To run commands with this script, you need to install ansible.\n"
-      exit 1
+      exit_prog 1
     end
     @options[:command] = c
   end
@@ -130,7 +135,7 @@ option_parser = OptionParser.new do |opts|
   end
   opts.on_tail("-h", "--help", "Show this message") do
     puts opts
-    exit 1
+    exit_prog 1
   end
 end
 
@@ -160,11 +165,11 @@ end
 def validate_ssl_opt (opt)
   unless @options.has_key? opt
     puts "missing '#{opt}' configuration\n"
-    exit 1
+    exit_prog 1
   else
     unless File.exists? @options[opt]
       puts "file '#{@options[opt]}' specified in '#{opt}' option does not exist or is inaccessible\n"
-      exit 1
+      exit_prog 1
     end
   end
 end
@@ -219,8 +224,10 @@ else
 end
 
 if @options[:debug]
-  PP.pp @options
-  puts "ARGV: #{ARGV}\n"
+  STDERR.puts "\e[31mOptions:"
+  opts = PP.pp(@options, "")
+  STDERR.puts opts
+  STDERR.puts "ARGV: #{ARGV}\n\e[0m"
 end
 
 @options[:ssl_key] = File.expand_path(@options[:ssl_key])
@@ -236,7 +243,7 @@ options_tmp_facts.each do |f|
     next if v == nil
     # Support all v3 api operators
     factmatch = v.scan(/^(.*?)(<=|>=|=|~|<|>)(.*?)$/)
-    puts "factmatch: #{factmatch}\n" if @options[:debug]
+    STDERR.puts "\e[31mfactmatch: #{factmatch}\n\e[0m" if @options[:debug]
     if factmatch.empty?
       facts_include << v
       next
@@ -251,8 +258,8 @@ end
 cols = ([ 'fqdn' ] << facts_include).flatten
 
 if @options[:debug] then
-  puts "fact_include: #{facts_include}\n"
-  puts "fact_criteria: #{facts_criteria}\n"
+  STDERR.puts "\e[31mfact_include: #{facts_include}\n"
+  STDERR.puts "fact_criteria: #{facts_criteria}\n\e[0m"
 end
 
 # build up the query string
@@ -286,7 +293,7 @@ end
 query << "  ]\n" unless facts_criteria.empty?
 query << "]\n"
 
-puts "query: #{query}\n" if @options[:debug]
+STDERR.puts "\e[31mquery: #{query}\n\e[0m" if @options[:debug]
 
 uri = URI.parse("#{@options[:server_url]}/v3/facts?query=#{URI.encode(query)}")
 key = File.read(File.expand_path(@options[:ssl_key]))
@@ -315,34 +322,36 @@ end
 
 if nodes_array.empty? then
   puts "No results found.\n"
-  exit 0
+  exit_prog 0
 end
 
 if nodes_array.find {|h| h.member? @options[:order] } then
   nodes_array = nodes_array.sort_by{ |hash| hash[@options[:order]] || '' }
 else
   puts "Invalid order field '#{@options[:order]}' specified\n"
-  exit 1
+  exit_prog 1
 end
 
-puts "matching nodes: #{nodes_array}\n" if @options[:debug]
+STDERR.puts "\e[31mmatching nodes: #{nodes_array}\n\e[0m" if @options[:debug]
 
 if @options[:list_fact_names] then
   puts fact_names
-  exit 0
+  exit_prog 0
 end
 
 if @options[:list_only] then
   puts print_matches(cols, nodes_array, false)
-  exit 0
+  exit_prog 0
 end
 
 if @options[:command] or not @options[:ansible_args].empty? or not @options[:ansible_opts].empty? then
   inv = { 'all' => { 'hosts' => nodes_array.map { |x| x[@options[:mgmt_ip_fact]] } } }
-  invfile = "#{Dir.home}/.pdb/tmpinventorylist"
-  File.open(invfile, 'w') { |f| f.write("#!/bin/sh\nprintf '#{inv.to_json}\n'\n") }
-  File.chmod(0700, invfile)
-  ansible_command = "ansible all -i \"#{invfile}\""
+  tmp_inventory_file = Tempfile.new('pdb_inventory', "#{Dir.home}/.pdb")
+  tmp_inventory_file.write "#!/bin/sh\nprintf '#{inv.to_json}\n'\n"
+  tmp_inventory_file.close
+  ObjectSpace.undefine_finalizer(tmp_inventory_file) if @options[:debug]
+  File.chmod(0700, tmp_inventory_file.path)
+  ansible_command = "ansible all -i \"#{tmp_inventory_file.path}\""
   ansible_command << " -f #{@options[:threads]}"
   ansible_command << " -m #{@options[:ansible_module]}" unless @options[:ansible_module].empty?
   ansible_command << " -a \"#{@options[:command]}\"" if @options[:command]
@@ -352,10 +361,10 @@ if @options[:command] or not @options[:ansible_args].empty? or not @options[:ans
   @options[:ansible_opts].each { |e| ansible_command << " -a \"#{e}\"" }
   @options[:ansible_args].each { |e| ansible_command << " #{e}" }
   @options[:ansible_env].each { |e| ansible_command << " -e \"#{e}\"" }
-  puts "ansible command: #{ansible_command}\n" if @options[:debug]
+  STDERR.puts "\e[31mansible command: #{ansible_command}\n\e[0m" if @options[:debug]
   system(ansible_command)
-  File.delete invfile unless @options[:debug]
-  exit 0
+  STDERR.puts "\e[31mAnsible exit code: #{$?}\n\e[0m" if @options[:debug]
+  exit_prog 0
 end
 
 if nodes_array.length > 1 then
@@ -367,7 +376,7 @@ if nodes_array.length > 1 then
   num = STDIN.gets.chomp().to_i
   unless num.between?(1, nodes_array.length) then
     puts "Try picking a number that exists...\n"
-    exit 1
+    exit_prog 1
   end
   real_node = nodes_array[num-1]
 else
@@ -385,6 +394,7 @@ if real_node then
     useratip = node_ip
   end
   cmd = "ssh #{@options[:ssh_opts]} #{useratip}"
-  puts "ssh cmd: #{cmd}\n" if @options[:debug]
+  STDERR.puts "\e[31mssh cmd: #{cmd}\n\e[0m" if @options[:debug]
   exec(cmd)
 end
+
