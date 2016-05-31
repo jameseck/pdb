@@ -33,3 +33,7 @@ You can mix and match options:
 -f 'osfamily,memorysize_mb<1000'
 This will include the osfamily fact in the output and select nodes where the memorysize_mb fact is less than 1000
 
+
+Debugging:
+
+If you add the "-d" option, a bunch of extra information will be output on stderr.  "-d" will also prevent the ansible inventory files from being deleted.  You can find these files at ~/.pdb/pdb_inventory*
