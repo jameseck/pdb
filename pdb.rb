@@ -7,8 +7,20 @@ require 'net/https'
 require 'uri'
 require 'tempfile'
 require 'pp'
+require 'memcache'
+require 'active_support/time'
 
 fqdn = `hostname -f`.chomp
+
+#Caching function to check in memcache first
+private 
+def data_cache(key)
+  unless output = CACHE.get(key)
+    output = yield
+    CACHE.set(key, output, 1.hour)
+  end
+  return output
+end 
 
 default_options = {
   :ansible_module  => 'shell',
@@ -21,6 +33,7 @@ default_options = {
   :include_facts   => true,
   :list_fact_names => false,
   :list_only       => false,
+  :memcache_server => '127.0.0.1',
   :mgmt_ip_fact    => 'ipaddress',
   :order           => 'fqdn',
   :remote_user     => 'root',
@@ -32,7 +45,6 @@ default_options = {
   :use_sudo        => true,
   :threads         => 5,
 }
-
 @options = default_options
 
 def exit_prog(exit_code=0)
@@ -57,12 +69,13 @@ if File.exists? config_file then
   end
 end
 
+CACHE = MemCache.new(@options[:memcache_server])
+
 facts_include = [ @options[:mgmt_ip_fact], ]
 facts_criteria = {}
 
 
 options_tmp_facts = []
-
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] [hostregex] [hostregex] ..."
   opts.on("-a", "--ansible-module-args OPTS", "Pass module arguments to ansible") do |a|
@@ -261,7 +274,6 @@ if @options[:debug] then
   STDERR.puts "\e[31mfact_include: #{facts_include}\n"
   STDERR.puts "fact_criteria: #{facts_criteria}\n\e[0m"
 end
-
 # build up the query string
 query = "[ \"and\",\n"
 query << "  [ \"or\",\n"
@@ -305,9 +317,14 @@ http.key = OpenSSL::PKey::RSA.new(key)
 http.ca_file = File.expand_path(@options[:ssl_ca])
 http.verify_mode = OpenSSL::SSL::VERIFY_PEER
 
+beginning_time = Time.now
+md5 = Digest::MD5.hexdigest(ARGV.join) #Use given arguments as key for memcache
 request = Net::HTTP::Get.new(uri.request_uri)
-response = http.request(request)
+response = data_cache(md5) { http.request(request) }
+end_time = Time.now
+puts "Query Time: #{(end_time - beginning_time)*1000} milliseconds"
 results_array = JSON.parse(response.body)
+
 
 results_hash = {}
 results_array.each do |a|
