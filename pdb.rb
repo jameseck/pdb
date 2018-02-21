@@ -435,7 +435,6 @@ if @options[:command] or not @options[:ansible_args].empty? or not @options[:ans
 end
 
 if nodes_array.length > 1 then
-  puts nodes_array
   puts "Found nodes:\n"
   puts "\n"
   puts print_matches(cols, nodes_array, true)
