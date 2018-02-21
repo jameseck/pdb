@@ -1,5 +1,11 @@
 ---
-server_url: https://puppetdb:8081
-ssl_key: ~/.pdb/private_keys/<fqdn>.pem
-ssl_cert: ~/.pdb/certs/<fqdn>.pem
-ssl_ca: ~/.pdb/certs/ca.pem
+puppetdb1:
+  server_url: https://puppetdb:8081
+  ssl_key: ~/.pdb/private_keys/<fqdn>.pem
+  ssl_cert: ~/.pdb/certs/<fqdn>.pem
+  ssl_ca: ~/.pdb/certs/ca.pem
+puppetdb2:
+  server_url: https://puppetdb-2:8081
+  ssl_key: ~/.pdb/private_keys/<fqdn>.pem
+  ssl_cert: ~/.pdb/certs/<fqdn>.pem
+  ssl_ca: ~/.pdb/certs/ca.pem

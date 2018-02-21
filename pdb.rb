@@ -26,11 +26,14 @@ default_options = {
   :remote_user     => 'root',
   :ssh_opts        => '-A -t -Y',
   :ssh_user        => nil,
+  :ssh_fqdn         => nil,
   :ssl_ca          => '/var/lib/puppet/ssl/certs/ca_crt.pem',
   :ssl_cert        => "/var/lib/puppet/ssl/certs/#{fqdn}.pem",
   :ssl_key         => "/var/lib/puppet/ssl/private_keys/#{fqdn}.pem",
   :use_sudo        => true,
   :threads         => 5,
+  :pdbversion      => "3",
+  :configdir       => "#{Dir.home}/.pdb"
 }
 
 @options = default_options
@@ -39,29 +42,11 @@ def exit_prog(exit_code=0)
   exit exit_code
 end
 
-config_dir = "#{Dir.home}/.pdb"
-
-unless File.exists? config_dir
-  File.mkdir config_dir
-  File.chmod 0700, config_dir
-end
-
-config_file = "#{config_dir}/pdb.yaml"
-
-# If there is a config file, merge the options with the default options
-# Note that in the config file you can specify the options as "ssh_key" or ":ssh_key"
-if File.exists? config_file then
-  config_file_options = YAML.load_file(config_file)
-  unless config_file_options == nil then
-    config_file_options.each { |k,v| @options[k.to_sym] = v }
-  end
-end
-
-facts_include = [ @options[:mgmt_ip_fact], ]
-facts_criteria = {}
-
-
+# Set some empty arrays
 options_tmp_facts = []
+nodes_array = []
+cols = []
+list_fact_names = []
 
 option_parser = OptionParser.new do |opts|
   opts.banner = "Usage: #{File.basename($0)} [options] [hostregex] [hostregex] ..."
@@ -118,6 +103,9 @@ option_parser = OptionParser.new do |opts|
   opts.on("-s", "--ssh-options OPTIONS", "Options for SSH (Default/Current: #{default_options[:ssh_opts]}") do |v|
     @options[:ssh_opts] = v
   end
+  opts.on("--ssh-fqdn", "Boolean option to SSH to FQDN rather than IP (Default/Current: #{default_options[:ssh_fqdn]}") do |v|
+    @options[:ssh_fqdn] = v
+  end
   opts.on("--ssl_cert FILE", "SSL certificate file to connect to puppetdb. Default/Current: #{default_options[:ssl_cert]}") do |v|
     @options[:ssl_cert] = v
   end
@@ -133,6 +121,12 @@ option_parser = OptionParser.new do |opts|
   opts.on("--[no-]use-sudo", "Whether to use sudo on the remote host - only used by ansible. Default/Current: #{default_options[:use_sudo]}") do |v|
     @options[:use_sudo] = v
   end
+  opts.on("--configdir FILE", "Config directory - for use with multiple puppet db's. Current setting: #{default_options[:configdir]}") do |v|
+    @options[:configdir] = v
+  end
+  opts.on("--pdbversion [3|5]", "Define the pdb version to set endpoints - [3 | 5] #{default_options[:pdbversion]}") do |v|
+    @options[:pdbversion] = v
+  end
   opts.on_tail("-h", "--help", "Show this message") do
     puts opts
     exit_prog 1
@@ -141,11 +135,34 @@ end
 
 option_parser.parse!
 
-# Some validation
+# Setup all options
+config_dir = "#{@options[:configdir]}"
 
-def fact_names
+unless File.exists? config_dir
+  File.mkdir config_dir
+  File.chmod 0700, config_dir
+end
 
-  uri = URI.parse("#{@options[:server_url]}/v3/fact-names")
+config_file = "#{config_dir}/pdb.yaml"
+
+def set_endpoint
+  if @options[:pdbversion] == "3"
+    @endpoint = "/v3"
+  elsif @options[:pdbversion] == "5"
+    @endpoint = "/pdb/query/v4"
+  else
+    puts "#{@options[:pdbversion]} - Is not a valid choice for PDB version - use 3 (default) or 5"
+    exit_prog 1
+  end
+end
+
+def fact_names(list_fact_names)
+
+  set_endpoint
+
+  puts "list_fact_names before #{list_fact_names.count}"
+
+  uri = URI.parse("#{@options[:server_url]}#{@endpoint}/fact-names")
   key = File.read(File.expand_path(@options[:ssl_key]))
   cert = File.read(File.expand_path(@options[:ssl_cert]))
   http = Net::HTTP.new(uri.host, uri.port)
@@ -158,7 +175,10 @@ def fact_names
   request = Net::HTTP::Get.new(uri.request_uri)
   response = http.request(request)
 
-  JSON.parse(response.body)
+  data = JSON.parse(response.body)
+  data.each {|a| list_fact_names.push(a)}
+
+  puts "list_fact_names after #{list_fact_names.count}"
 
 end
 
@@ -193,7 +213,7 @@ def print_matches (cols, matches, index=false)
 
   output = ""
   header = ""
-  cols.each do |col|
+  cols.uniq.each do |col|
     next unless columns.has_key? col
     output << sprintf("%-#{columns[col]}s " % col)
     header << sprintf("%-#{columns[col]}s " % ('-' * columns[col]))
@@ -204,7 +224,7 @@ def print_matches (cols, matches, index=false)
     if index then
       output << sprintf("%-#{columns['index']}s " % node_index)
     end
-    cols.each do |col|
+    cols.uniq.each do |col|
       next if col == 'index'
       output << " " * (columns[col].to_i+1) unless m.has_key? col
       next if m[col] == nil
@@ -217,106 +237,148 @@ def print_matches (cols, matches, index=false)
   output
 end
 
-if ARGV.length >= 1
-  hostnames = ARGV
-else
-  hostnames = [ '.*' ]
-end
+def pdb_main (options_tmp_facts, nodes_array, cols, pdb)
+  facts_include = [ @options[:mgmt_ip_fact] ]
+  facts_criteria = {}
 
-if @options[:debug]
-  STDERR.puts "\e[31mOptions:"
-  opts = PP.pp(@options, "")
-  STDERR.puts opts
-  STDERR.puts "ARGV: #{ARGV}\n\e[0m"
-end
+  set_endpoint
 
-@options[:ssl_key] = File.expand_path(@options[:ssl_key])
-@options[:ssl_cert] = File.expand_path(@options[:ssl_cert])
-@options[:ssl_ca] = File.expand_path(@options[:ssl_ca])
-validate_ssl_opt :ssl_key
-validate_ssl_opt :ssl_cert
-validate_ssl_opt :ssl_ca
+  if ARGV.length >= 1
+    hostnames = ARGV
+  else
+    hostnames = [ '.*' ]
+  end
+
+  if @options[:debug]
+    STDERR.puts "\e[31mOptions:"
+    opts = PP.pp(@options, "")
+    STDERR.puts opts
+    STDERR.puts "ARGV: #{ARGV}\n\e[0m"
+  end
+
+  @options[:ssl_key] = File.expand_path(@options[:ssl_key])
+  @options[:ssl_cert] = File.expand_path(@options[:ssl_cert])
+  @options[:ssl_ca] = File.expand_path(@options[:ssl_ca])
+  validate_ssl_opt :ssl_key
+  validate_ssl_opt :ssl_cert
+  validate_ssl_opt :ssl_ca
 
 
-options_tmp_facts.each do |f|
-  f.split(',').each do |v|
-    next if v == nil
-    # Support all v3 api operators
-    factmatch = v.scan(/^(.*?)(<=|>=|=|~|<|>)(.*?)$/)
-    STDERR.puts "\e[31mfactmatch: #{factmatch}\n\e[0m" if @options[:debug]
-    if factmatch.empty?
-      facts_include << v
-      next
+  options_tmp_facts.each do |f|
+    f.split(',').each do |v|
+      next if v == nil
+      # Support all v3 api operators
+      factmatch = v.scan(/^(.*?)(<=|>=|=|~|<|>)(.*?)$/)
+      STDERR.puts "\e[31mfactmatch: #{factmatch}\n\e[0m" if @options[:debug]
+      if factmatch.empty?
+        facts_include << v
+        next
+      end
+      facts_include << factmatch[0][0] if @options[:include_facts] and not facts_include.include? factmatch[0][0]
+      facts_criteria[factmatch[0][0]] ||= {}
+      facts_criteria[factmatch[0][0]]['op'] = factmatch[0][1]
+      facts_criteria[factmatch[0][0]]['value'] = factmatch[0][2]
     end
-    facts_include << factmatch[0][0] if @options[:include_facts] and not facts_include.include? factmatch[0][0]
-    facts_criteria[factmatch[0][0]] ||= {}
-    facts_criteria[factmatch[0][0]]['op'] = factmatch[0][1]
-    facts_criteria[factmatch[0][0]]['value'] = factmatch[0][2]
+  end
+
+  # cols.push ([ 'fqdn', 'ssh_to', 'pdb' ] << facts_include).flatten
+  cols.push ([ 'fqdn', 'ssh_to', 'pdb' ] << facts_include).flatten
+
+  if @options[:debug] then
+    STDERR.puts "\e[31mfact_include: #{facts_include}\n"
+    STDERR.puts "fact_criteria: #{facts_criteria}\n\e[0m"
+  end
+
+  # build up the query string
+  query = "[ \"and\",\n"
+  query << "  [ \"or\",\n"
+  hosts_q = []
+  hostnames.each do |h|
+    hosts_q << "    [ \"~\", \"certname\", \"#{h}\" ]\n"
+  end
+  query << hosts_q.join(',')
+  query << "  ],\n"
+  query << "  [ \"or\",\n"
+
+  facts_inc = []
+  facts_include.each do |f|
+    facts_inc << "    [ \"=\", \"name\", \"#{f}\" ]\n"
+  end
+  query << facts_inc.join(",")
+  query << "  ]\n"
+  query << " ,[\"#{@options[:fact_and_or]}\"\n" unless facts_criteria.empty?
+  facts_criteria.each do |k,v|
+    query << "   ,[ \"in\", \"certname\",\n"
+    query << "      [ \"extract\", \"certname\", [ \"select-facts\",\n"
+    query << "        [ \"and\",\n"
+    query << "          [ \"=\", \"name\", \"#{k}\" ],\n"
+    query << "          [ \"#{v['op']}\", \"value\", \"#{v['value']}\" ]\n"
+    query << "        ]\n"
+    query << "      ]]\n"
+    query << "    ]\n"
+  end
+  query << "  ]\n" unless facts_criteria.empty?
+  query << "]\n"
+
+  STDERR.puts "\e[31mquery: #{query}\n\e[0m" if @options[:debug]
+
+  uri = URI.parse("#{@options[:server_url]}#{@endpoint}/facts?query=#{URI.encode(query)}")
+  key = File.read(File.expand_path(@options[:ssl_key]))
+  cert = File.read(File.expand_path(@options[:ssl_cert]))
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = true
+  http.cert = OpenSSL::X509::Certificate.new(cert)
+  http.key = OpenSSL::PKey::RSA.new(key)
+  http.ca_file = File.expand_path(@options[:ssl_ca])
+  http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+
+  request = Net::HTTP::Get.new(uri.request_uri)
+  response = http.request(request)
+  results_array = JSON.parse(response.body)
+
+  results_hash = {}
+  results_array.each do |a|
+    results_hash[a['certname']] ||= {}
+    results_hash[a['certname']]['pdb'] = pdb
+    unless a['name'] == @options[:mgmt_ip_fact]
+      results_hash[a['certname']][a['name']] = a['value']
+    else
+      if @options[:list_only]
+        results_hash[a['certname']][a['name']] = a['value']
+      end
+      results_hash[a['certname']]['ssh_to'] = a['value']
+    end
+    unless @options[:ssh_fqdn].nil?
+      results_hash[a['certname']]['ssh_to'] = a['certname']
+    end
+  end
+  results_hash.each do |k,v|
+    nodes_array << { 'fqdn' => k }.merge(v)
   end
 end
 
-cols = ([ 'fqdn' ] << facts_include).flatten
-
-if @options[:debug] then
-  STDERR.puts "\e[31mfact_include: #{facts_include}\n"
-  STDERR.puts "fact_criteria: #{facts_criteria}\n\e[0m"
+def print_fact_names(list_fact_names)
+  puts "Facts available\n#{list_fact_names.uniq.join("\n")}"
+  exit_prog 0
 end
 
-# build up the query string
-query = "[ \"and\",\n"
-query << "  [ \"or\",\n"
-hosts_q = []
-hostnames.each do |h|
-  hosts_q << "    [ \"~\", \"certname\", \"#{h}\" ]\n"
-end
-query << hosts_q.join(',')
-query << "  ],\n"
-query << "  [ \"or\",\n"
-
-facts_inc = []
-facts_include.each do |f|
-  facts_inc << "    [ \"=\", \"name\", \"#{f}\" ]\n"
-end
-query << facts_inc.join(",")
-query << "  ]\n"
-query << " ,[\"#{@options[:fact_and_or]}\"\n" unless facts_criteria.empty?
-facts_criteria.each do |k,v|
-  query << "   ,[ \"in\", \"certname\",\n"
-  query << "      [ \"extract\", \"certname\", [ \"select-facts\",\n"
-  query << "        [ \"and\",\n"
-  query << "          [ \"=\", \"name\", \"#{k}\" ],\n"
-  query << "          [ \"#{v['op']}\", \"value\", \"#{v['value']}\" ]\n"
-  query << "        ]\n"
-  query << "      ]]\n"
-  query << "    ]\n"
-end
-query << "  ]\n" unless facts_criteria.empty?
-query << "]\n"
-
-STDERR.puts "\e[31mquery: #{query}\n\e[0m" if @options[:debug]
-
-uri = URI.parse("#{@options[:server_url]}/v3/facts?query=#{URI.encode(query)}")
-key = File.read(File.expand_path(@options[:ssl_key]))
-cert = File.read(File.expand_path(@options[:ssl_cert]))
-http = Net::HTTP.new(uri.host, uri.port)
-http.use_ssl = true
-http.cert = OpenSSL::X509::Certificate.new(cert)
-http.key = OpenSSL::PKey::RSA.new(key)
-http.ca_file = File.expand_path(@options[:ssl_ca])
-http.verify_mode = OpenSSL::SSL::VERIFY_PEER
-
-request = Net::HTTP::Get.new(uri.request_uri)
-response = http.request(request)
-results_array = JSON.parse(response.body)
-
-results_hash = {}
-results_array.each do |a|
-  results_hash[a['certname']] ||= {}
-  results_hash[a['certname']][a['name']] = a['value']
-end
-nodes_array = []
-results_hash.each do |k,v|
-  nodes_array << { 'fqdn' => k }.merge(v)
+if File.exists? config_file then
+  config_file_options = YAML.load_file(config_file)
+  unless config_file_options == nil then
+    config_file_options.keys.each do |pdb|
+      config_file_options[pdb].each do |k, v|
+        @options[k.to_sym] = v
+      end
+      if @options[:list_fact_names]
+        fact_names(list_fact_names)
+      else
+        pdb_main(options_tmp_facts, nodes_array, cols, pdb)
+      end
+    end
+    if @options[:list_fact_names]
+      print_fact_names(list_fact_names)
+    end
+  end
 end
 
 
@@ -334,19 +396,24 @@ end
 
 STDERR.puts "\e[31mmatching nodes: #{nodes_array}\n\e[0m" if @options[:debug]
 
-if @options[:list_fact_names] then
-  puts fact_names
-  exit_prog 0
-end
+#if @options[:list_fact_names] then
+#  puts config_file_options.keys
+#  puts "In if block = #{list_fact_names.count}"
+#  exit_prog 0
+#end
 
 if @options[:list_only] then
-  puts print_matches(cols, nodes_array, false)
+  puts print_matches(cols, nodes_array, true)
   exit_prog 0
 end
 
 if @options[:command] or not @options[:ansible_args].empty? or not @options[:ansible_opts].empty? then
-  inv = { 'all' => { 'hosts' => nodes_array.map { |x| x[@options[:mgmt_ip_fact]] } } }
-  tmp_inventory_file = Tempfile.new('pdb_inventory', "#{Dir.home}/.pdb")
+  if @options[:ssh_fqdn].nil?
+    inv = { 'all' => { 'hosts' => nodes_array.map { |x| x[@options[:mgmt_ip_fact]] } } }
+  else
+    inv = { 'all' => { 'hosts' => nodes_array.map { |x| x["fqdn"] } } }
+  end
+  tmp_inventory_file = Tempfile.new('pdb_inventory', "#{@options[:configdir]}")
   tmp_inventory_file.write "#!/bin/sh\nprintf '#{inv.to_json}\n'\n"
   tmp_inventory_file.close
   ObjectSpace.undefine_finalizer(tmp_inventory_file) if @options[:debug]
@@ -368,6 +435,7 @@ if @options[:command] or not @options[:ansible_args].empty? or not @options[:ans
 end
 
 if nodes_array.length > 1 then
+  puts nodes_array
   puts "Found nodes:\n"
   puts "\n"
   puts print_matches(cols, nodes_array, true)
@@ -383,18 +451,21 @@ else
   real_node = nodes_array[0]
 end
 
-
 if real_node then
   node_fqdn = real_node['fqdn']
-  node_ip = real_node[@options[:mgmt_ip_fact]]
+  node_ip = real_node['ssh_to']
   puts "SSHing to #{node_fqdn} - #{node_ip}\n"
-  if @options[:ssh_user]
-    useratip = "#{@options[:ssh_user]}@#{node_ip}"
+  if @options[:ssh_fqdn].nil?
+    ssh_to = node_ip
   else
-    useratip = node_ip
+    ssh_to = node_fqdn
+  end
+  if @options[:ssh_user]
+    useratip = "#{@options[:ssh_user]}@#{ssh_to}"
+  else
+    useratip = ssh_to
   end
   cmd = "ssh #{@options[:ssh_opts]} #{useratip}"
   STDERR.puts "\e[31mssh cmd: #{cmd}\n\e[0m" if @options[:debug]
   exec(cmd)
 end
-
