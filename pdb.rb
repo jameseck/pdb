@@ -160,8 +160,6 @@ def fact_names(list_fact_names)
 
   set_endpoint
 
-  puts "list_fact_names before #{list_fact_names.count}"
-
   uri = URI.parse("#{@options[:server_url]}#{@endpoint}/fact-names")
   key = File.read(File.expand_path(@options[:ssl_key]))
   cert = File.read(File.expand_path(@options[:ssl_cert]))
@@ -177,8 +175,6 @@ def fact_names(list_fact_names)
 
   data = JSON.parse(response.body)
   data.each {|a| list_fact_names.push(a)}
-
-  puts "list_fact_names after #{list_fact_names.count}"
 
 end
 
@@ -395,12 +391,6 @@ else
 end
 
 STDERR.puts "\e[31mmatching nodes: #{nodes_array}\n\e[0m" if @options[:debug]
-
-#if @options[:list_fact_names] then
-#  puts config_file_options.keys
-#  puts "In if block = #{list_fact_names.count}"
-#  exit_prog 0
-#end
 
 if @options[:list_only] then
   puts print_matches(cols, nodes_array, true)
